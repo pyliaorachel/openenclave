@@ -152,6 +152,51 @@ static void _trace_datetime(const char* msg, const oe_datetime_t* date)
     }
 }
 
+/**
+ * Call into host to fetch revocation information given the CA and PCK
+ * certificates.
+ */
+oe_result_t oe_get_revocation_info_from_certs(
+    oe_cert_t* leaf_cert,
+    oe_cert_t* intermediate_cert,
+    oe_get_revocation_info_args_t* args)
+{
+    oe_result_t result = OE_FAILURE;
+    ParsedExtensionInfo parsed_extension_info = {{0}};
+    char* intermediate_crl_url = NULL;
+    char* leaf_crl_url = NULL;
+
+    if (intermediate_cert == NULL || leaf_cert == NULL)
+        OE_RAISE(OE_INVALID_PARAMETER);
+
+    // Gather fmspc.
+    OE_CHECK(_parse_sgx_extensions(leaf_cert, &parsed_extension_info));
+    OE_CHECK(oe_memcpy_s(
+        args->fmspc,
+        sizeof(args->fmspc),
+        parsed_extension_info.fmspc,
+        sizeof(parsed_extension_info.fmspc)));
+
+    // Gather CRL distribution point URLs from certs.
+    OE_CHECK(
+        _get_crl_distribution_point(intermediate_cert, &intermediate_crl_url));
+    OE_CHECK(_get_crl_distribution_point(leaf_cert, &leaf_crl_url));
+
+    args->crl_urls[0] = leaf_crl_url;
+    args->crl_urls[1] = intermediate_crl_url;
+    args->num_crl_urls = 2;
+
+    OE_CHECK(oe_get_revocation_info(args));
+
+    result = OE_OK;
+done:
+
+    oe_free(leaf_crl_url);
+    oe_free(intermediate_crl_url);
+
+    return result;
+}
+
 oe_result_t oe_enforce_revocation(
     oe_cert_t* leaf_cert,
     oe_cert_t* intermediate_cert,

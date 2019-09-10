@@ -128,6 +128,11 @@ void enclave_test_remote_verify_report()
     test_remote_verify_report();
 }
 
+void enclave_test_verify_report_with_collaterals()
+{
+    test_verify_report_with_collaterals();
+}
+
 OE_SET_ENCLAVE_SGX(
     0,    /* ProductID */
     0,    /* SecurityVersion */

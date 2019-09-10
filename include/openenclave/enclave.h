@@ -344,6 +344,26 @@ oe_result_t oe_get_target_info_v2(
 void oe_free_target_info(void* target_info);
 
 /**
+ * Get collateral data which can be used with
+ * oe_verify_report_with_collateral().
+ *
+ * @param collaterals_buffer The buffer containing the collaterals to parse.
+ * @param collaterals_buffer_size The size of the **collaterals_buffer**.
+ *
+ * @retval OE_OK The collaterals were successfully retrieved.
+ */
+oe_result_t oe_get_collaterals(
+    uint8_t** collaterals_buffer,
+    size_t* collaterals_buffer_size);
+
+/**
+ * Free up any resources allocated by oe_get_collateras()
+ *
+ * @param collaterals_buffer The buffer containing the collaterals.
+ */
+void oe_cleanup_collaterals(uint8_t* collaterals_buffer);
+
+/**
  * Parse an enclave report into a standard format for reading.
  *
  * @param report The buffer containing the report to parse.

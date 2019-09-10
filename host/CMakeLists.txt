@@ -129,7 +129,9 @@ if (OE_SGX)
     sgx/sgxquoteprovider.c)
 
   list(APPEND PLATFORM_SDK_ONLY_SRC
+    ../common/sgx/collaterals.c
     sgx/calls.c
+    sgx/collaterals.c
     sgx/create.c
     sgx/elf.c
     sgx/enclave.c

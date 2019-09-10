@@ -161,6 +161,8 @@ int main(int argc, const char* argv[])
 
     test_remote_verify_report();
 
+    test_verify_report_with_collaterals();
+
     OE_TEST(test_iso8601_time(enclave) == OE_OK);
     OE_TEST(test_iso8601_time_negative(enclave) == OE_OK);
 

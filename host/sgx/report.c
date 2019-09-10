@@ -308,7 +308,6 @@ oe_result_t oe_verify_report(
 
         OE_CHECK(retval);
     }
-
     else
     {
         OE_RAISE(OE_INVALID_PARAMETER);

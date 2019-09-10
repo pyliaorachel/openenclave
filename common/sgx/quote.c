@@ -302,3 +302,67 @@ done:
     oe_cert_chain_free(&pck_cert_chain);
     return result;
 }
+
+oe_result_t oe_get_quote_cert_chain_internal(
+    const uint8_t* quote,
+    size_t quote_size,
+    const uint8_t** pem_pck_certificate,
+    size_t* pem_pck_certificate_size,
+    oe_cert_chain_t* pck_cert_chain)
+{
+    oe_result_t result = OE_UNEXPECTED;
+    sgx_quote_t* sgx_quote = NULL;
+    sgx_quote_auth_data_t* quote_auth_data = NULL;
+    sgx_qe_auth_data_t qe_auth_data = {0};
+    sgx_qe_cert_data_t qe_cert_data = {0};
+
+    if (quote == NULL || pem_pck_certificate == NULL || pck_cert_chain == NULL)
+    {
+        OE_RAISE(OE_INVALID_PARAMETER);
+    }
+
+    OE_CHECK(_parse_quote(
+        quote,
+        quote_size,
+        &sgx_quote,
+        &quote_auth_data,
+        &qe_auth_data,
+        &qe_cert_data));
+
+    if (sgx_quote->version != OE_SGX_QUOTE_VERSION)
+    {
+        OE_RAISE_MSG(
+            OE_QUOTE_VERIFICATION_ERROR,
+            "Unexpected quote version sgx_quote->version=%d",
+            sgx_quote->version);
+    }
+
+    // The certificate provided in the quote is preferred.
+    if (qe_cert_data.type == OE_SGX_PCK_ID_PCK_CERT_CHAIN)
+    {
+        if (qe_cert_data.size == 0)
+            OE_RAISE(OE_QUOTE_VERIFICATION_ERROR);
+        *pem_pck_certificate = qe_cert_data.data;
+        *pem_pck_certificate_size = qe_cert_data.size;
+    }
+    else
+    {
+        OE_RAISE_MSG(
+            OE_MISSING_CERTIFICATE_CHAIN,
+            "Unexpected certificate type (qe_cert_data.type=%d)",
+            qe_cert_data.type);
+    }
+
+    if (*pem_pck_certificate == NULL)
+        OE_RAISE_MSG(
+            OE_MISSING_CERTIFICATE_CHAIN, "No certificate found", NULL);
+
+    // Read and validate the chain.
+    OE_CHECK(oe_cert_chain_read_pem(
+        pck_cert_chain, *pem_pck_certificate, *pem_pck_certificate_size));
+
+    result = OE_OK;
+done:
+
+    return result;
+}
