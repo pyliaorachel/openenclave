@@ -10,6 +10,8 @@
 #define GetReport oe_get_report
 #define GetReport_v2 oe_get_report_v2
 
+#define GetCollaterals oe_get_collaterals
+
 #define VerifyReport oe_verify_report
 
 #else
@@ -23,6 +25,10 @@ oe_enclave_t* g_enclave = NULL;
     oe_get_report(g_enclave, flags, op, ops, rb, rbs)
 #define GetReport_v2(flags, rd, rds, op, ops, rb, rbs) \
     oe_get_report_v2(g_enclave, flags, op, ops, rb, rbs)
+
+// Get collateral macros.  Host side API has an additional enclave object.
+#define GetCollaterals(data, data_size) \
+    oe_get_collaterals(g_enclave, data, data_size)
 
 oe_result_t VerifyReport(
     const uint8_t* report,
@@ -886,4 +892,34 @@ void test_remote_verify_report()
         oe_free_report(report_ptr);
 #endif
     }
+}
+
+void test_verify_report_with_collaterals()
+{
+    uint32_t flags = OE_REPORT_FLAGS_REMOTE_ATTESTATION;
+
+    size_t report_ptr_size;
+    uint8_t* report_buffer_ptr;
+
+    size_t collaterals_size;
+    uint8_t* collaterals_buffer_ptr;
+
+    /* Test 1: Verify report with collaterals */
+    OE_TEST(
+        GetReport_v2(
+            flags, NULL, 0, NULL, 0, &report_buffer_ptr, &report_ptr_size) ==
+        OE_OK);
+
+    OE_TEST(
+        GetCollaterals(&collaterals_buffer_ptr, &collaterals_size) == OE_OK);
+
+    /* Test 2: Verify report without collaterals */
+
+    /* Test 3: Verify report with collaterals bad collaterals */
+
+    oe_cleanup_collaterals(collaterals_buffer_ptr);
+    oe_free_report(report_buffer_ptr);
+
+    collaterals_buffer_ptr = NULL;
+    report_buffer_ptr = NULL;
 }

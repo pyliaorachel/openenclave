@@ -18,6 +18,10 @@ oe_result_t oe_enforce_revocation(
     oe_cert_chain_t* pck_cert_chain);
 
 // Fetch revocation info using the specified args structure.
+oe_result_t oe_get_revocation_info_from_certs(
+    oe_cert_t* leaf_cert,
+    oe_cert_t* intermediate_cert,
+    oe_get_revocation_info_args_t* args);
 oe_result_t oe_get_revocation_info(oe_get_revocation_info_args_t* args);
 
 // Cleanup the args structure.
