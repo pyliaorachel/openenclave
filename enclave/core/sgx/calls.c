@@ -605,9 +605,9 @@ oe_result_t oe_call_host_function_by_table_id(
         {
             OE_CHECK(post_result);
             // Wait until args.result is set by the host worker.
-            while (args->result == __OE_RESULT_MAX)
+            while (__atomic_load_n(&args->result, __ATOMIC_SEQ_CST) ==
+                   __OE_RESULT_MAX)
             {
-                OE_ATOMIC_MEMORY_BARRIER_ACQUIRE();
                 /* Yield to CPU */
                 asm volatile("pause");
             }
