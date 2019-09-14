@@ -12,10 +12,21 @@
 
 OE_EXTERNC_BEGIN
 
+/**
+ * Deprecated:
+ *
+ * This is needed to be backwards compatible
+ * with Azure DCAP client 1.0.  Where the QE identity
+ * info is not available and therefore can not use
+ * collaterals.
+ */
 oe_result_t oe_enforce_revocation(
     oe_cert_t* leaf_cert,
-    oe_cert_t* intermediate_cert,
-    oe_cert_chain_t* pck_cert_chain);
+    oe_cert_t* intermediate_cert);
+
+oe_result_t oe_validate_revocation_list(
+    oe_cert_t* leaf_cert,
+    oe_get_revocation_info_args_t* revocation_args);
 
 // Fetch revocation info using the specified args structure.
 oe_result_t oe_get_revocation_info_from_certs(

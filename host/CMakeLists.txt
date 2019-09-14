@@ -118,6 +118,7 @@ endif()
 # SGX specific files.
 if (OE_SGX)
   list(APPEND PLATFORM_HOST_ONLY_SRC
+    ../common/sgx/collaterals.c
     ../common/sgx/qeidentity.c
     ../common/sgx/quote.c
     ../common/sgx/report.c
@@ -129,7 +130,6 @@ if (OE_SGX)
     sgx/sgxquoteprovider.c)
 
   list(APPEND PLATFORM_SDK_ONLY_SRC
-    ../common/sgx/collaterals.c
     sgx/calls.c
     sgx/collaterals.c
     sgx/create.c
