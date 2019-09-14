@@ -19,9 +19,9 @@ static shared_memory_arena_t* _arena_list = NULL;
 static oe_spinlock_t _arena_list_lock = OE_SPINLOCK_INITIALIZER;
 
 // default shared memory pool capacity is 1 mb
-size_t capacity = 1024 * 1024;
+static size_t capacity = 1024 * 1024;
 
-size_t max_capacity = 1 << 30;
+static const size_t max_capacity = 1 << 30;
 
 void* oe_allocate_arena(size_t capacity);
 void oe_deallocate_arena(void* buffer);
@@ -90,7 +90,7 @@ void* oe_arena_calloc(size_t num, size_t size)
     void* ptr = oe_arena_malloc(total);
     if (ptr != NULL)
     {
-        memset(ptr, 0, size);
+        memset(ptr, 0, total);
     }
     return ptr;
 }

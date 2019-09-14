@@ -47,9 +47,10 @@ int main(int argc, const char* argv[])
         return 1;
     }
 
-    // Enable switchless and configure host worker number
     const uint32_t flags = oe_get_create_flags();
 
+#ifdef OE_CONTEXT_SWITCHLESS_EXPERIMENTAL_FEATURE
+    // Enable switchless and configure host worker number
     oe_enclave_config_context_switchless_t config = {2, 0};
     oe_enclave_config_t configs[] = {{
         .config_type = OE_ENCLAVE_CONFIG_CONTEXT_SWITCHLESS,
@@ -63,6 +64,10 @@ int main(int argc, const char* argv[])
              configs,
              OE_COUNTOF(configs),
              &enclave)) != OE_OK)
+#else
+    if ((result = oe_create_switchless_enclave(
+             argv[1], OE_ENCLAVE_TYPE_SGX, flags, NULL, 0, &enclave)) != OE_OK)
+#endif
         oe_put_err("oe_create_enclave(): result=%u", result);
 
     char out[STRING_LEN];
