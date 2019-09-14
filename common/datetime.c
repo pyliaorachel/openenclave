@@ -124,7 +124,7 @@ oe_result_t oe_datetime_to_string(
     if (str == NULL || *str_length < 21)
     {
         *str_length = 21;
-        OE_RAISE(OE_BUFFER_TOO_SMALL);
+        OE_RAISE_NO_TRACE(OE_BUFFER_TOO_SMALL);
     }
 
     OE_CHECK(oe_datetime_is_valid(datetime));

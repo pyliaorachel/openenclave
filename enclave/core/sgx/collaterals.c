@@ -34,23 +34,32 @@ oe_result_t oe_get_collaterals(
     // Get a remote OE report.
     // We need a report in order to fetch the uris of the certificates in the
     // sgx quote.
-    OE_CHECK(oe_get_report(
-        OE_REPORT_FLAGS_REMOTE_ATTESTATION,
-        NULL,
-        0,
-        NULL,
-        0,
-        (uint8_t**)&remote_report,
-        &report_size));
+    OE_CHECK_MSG(
+        oe_get_report(
+            OE_REPORT_FLAGS_REMOTE_ATTESTATION,
+            NULL,
+            0,
+            NULL,
+            0,
+            (uint8_t**)&remote_report,
+            &report_size),
+        "Failed to get OE remote report. %s",
+        oe_result_str(result));
     header = (oe_report_header_t*)remote_report;
 
-    OE_CHECK(oe_verify_report(remote_report, report_size, parsed_report));
+    OE_CHECK_MSG(
+        oe_verify_report(remote_report, report_size, parsed_report),
+        "Failed to verify OE remote report. %s",
+        oe_result_str(result));
 
-    OE_CHECK(oe_get_collaterals_internal(
-        header->report,
-        header->report_size,
-        collaterals_buffer,
-        collaterals_buffer_size));
+    OE_CHECK_MSG(
+        oe_get_collaterals_internal(
+            header->report,
+            header->report_size,
+            collaterals_buffer,
+            collaterals_buffer_size),
+        "Failed to get collaterals. %s",
+        oe_result_str(result));
 
     result = OE_OK;
 done:
@@ -66,7 +75,7 @@ done:
     return result;
 }
 
-void oe_cleanup_collaterals(uint8_t* collaterals_buffer)
+void oe_free_collaterals(uint8_t* collaterals_buffer)
 {
     if (collaterals_buffer)
     {

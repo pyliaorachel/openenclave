@@ -9,6 +9,7 @@
 #include <openenclave/internal/sgxtypes.h>
 #include <openenclave/internal/utils.h>
 #include "../common.h"
+#include "collaterals.h"
 #include "qeidentity.h"
 #include "revocation.h"
 
@@ -29,6 +30,49 @@ OE_INLINE uint32_t ReadUint32(const uint8_t* p)
     return (uint32_t)(p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24));
 }
 
+static oe_result_t _validate_sgx_quote(const sgx_quote_t* sgx_quote)
+{
+    oe_result_t result = OE_OK;
+
+    if (sgx_quote->version != OE_SGX_QUOTE_VERSION)
+    {
+        OE_RAISE_MSG(
+            OE_QUOTE_VERIFICATION_ERROR,
+            "Unexpected quote version sgx_quote->version=%d",
+            sgx_quote->version);
+    }
+
+done:
+    return result;
+}
+
+static oe_result_t _validate_qe_cert_data(
+    const sgx_qe_cert_data_t* qe_cert_data)
+{
+    oe_result_t result = OE_OK;
+
+    // The certificate provided in the quote is preferred.
+    if (qe_cert_data->type != OE_SGX_PCK_ID_PCK_CERT_CHAIN)
+        OE_RAISE_MSG(
+            OE_MISSING_CERTIFICATE_CHAIN,
+            "Unexpected certificate type (qe_cert_data->type=%d)",
+            qe_cert_data->type);
+
+    if (qe_cert_data->size == 0)
+        OE_RAISE_MSG(
+            OE_QUOTE_VERIFICATION_ERROR,
+            "Quoting enclave certificate data is empty.",
+            NULL);
+
+    if (qe_cert_data->data == NULL)
+        OE_RAISE_MSG(
+            OE_MISSING_CERTIFICATE_CHAIN,
+            "No PCK certificate found in SGX quote.",
+            NULL);
+done:
+    return result;
+}
+
 static oe_result_t _parse_quote(
     const uint8_t* quote,
     size_t quote_size,
@@ -43,20 +87,27 @@ static oe_result_t _parse_quote(
     const uint8_t* const quote_end = quote + quote_size;
 
     if (quote_end < p)
-    {
         // Pointer wrapped around.
-        OE_RAISE(OE_REPORT_PARSE_ERROR);
-    }
+        OE_RAISE_MSG(
+            OE_REPORT_PARSE_ERROR,
+            "Parsing error.  Pointer wrapper around.",
+            NULL);
 
     *sgx_quote = NULL;
 
     *sgx_quote = (sgx_quote_t*)p;
     p += sizeof(sgx_quote_t);
     if (p > quote_end)
-        OE_RAISE(OE_REPORT_PARSE_ERROR);
+        OE_RAISE_MSG(
+            OE_REPORT_PARSE_ERROR,
+            "Parse error after parsing SGX quote, before signature.",
+            NULL);
 
     if (p + (*sgx_quote)->signature_len != quote_end)
-        OE_RAISE(OE_REPORT_PARSE_ERROR);
+        OE_RAISE_MSG(
+            OE_REPORT_PARSE_ERROR,
+            "Parse error after parsing SGX signature.",
+            NULL);
 
     *quote_auth_data = (sgx_quote_auth_data_t*)(*sgx_quote)->signature;
     p += sizeof(sgx_quote_auth_data_t);
@@ -67,7 +118,10 @@ static oe_result_t _parse_quote(
     p += qe_auth_data->size;
 
     if (p > quote_end)
-        OE_RAISE(OE_REPORT_PARSE_ERROR);
+        OE_RAISE_MSG(
+            OE_REPORT_PARSE_ERROR,
+            "Parse error after parsing QE authorization data.",
+            NULL);
 
     qe_cert_data->type = ReadUint16(p);
     p += 2;
@@ -77,7 +131,21 @@ static oe_result_t _parse_quote(
     p += qe_cert_data->size;
 
     if (p != quote_end)
-        OE_RAISE(OE_REPORT_PARSE_ERROR);
+        OE_RAISE_MSG(
+            OE_REPORT_PARSE_ERROR,
+            "Unexpected quote length while parsing.",
+            NULL);
+
+    //
+    // Validation
+    //
+    OE_CHECK_MSG(
+        _validate_sgx_quote(*sgx_quote), "SGX quote validation failed.", NULL);
+
+    OE_CHECK_MSG(
+        _validate_qe_cert_data(qe_cert_data),
+        "Failed to validate QE certificate data.",
+        NULL);
 
     result = OE_OK;
 done:
@@ -134,15 +202,10 @@ done:
     return result;
 }
 
-oe_result_t oe_verify_quote_internal(
+static oe_result_t oe_verify_quote_internal(
     const uint8_t* quote,
     size_t quote_size,
-    const uint8_t* pem_pck_certificate,
-    size_t pem_pck_certificate_size,
-    const uint8_t* pck_crl,
-    size_t pck_crl_size,
-    const uint8_t* tcb_info_json,
-    size_t tcb_info_json_size)
+    bool no_collaterals)
 {
     oe_result_t result = OE_UNEXPECTED;
     sgx_quote_t* sgx_quote = NULL;
@@ -161,84 +224,91 @@ oe_result_t oe_verify_quote_internal(
     oe_ec_public_key_t expected_root_public_key = {0};
     bool key_equal = false;
 
-    OE_UNUSED(pck_crl);
-    OE_UNUSED(pck_crl_size);
-    OE_UNUSED(tcb_info_json);
-    OE_UNUSED(tcb_info_json_size);
+    uint8_t* pem_pck_certificate = NULL;
+    size_t pem_pck_certificate_size = 0;
 
-    OE_CHECK(_parse_quote(
-        quote,
-        quote_size,
-        &sgx_quote,
-        &quote_auth_data,
-        &qe_auth_data,
-        &qe_cert_data));
+    OE_CHECK_MSG(
+        _parse_quote(
+            quote,
+            quote_size,
+            &sgx_quote,
+            &quote_auth_data,
+            &qe_auth_data,
+            &qe_cert_data),
+        "Failed to parse quote.",
+        NULL);
 
-    if (sgx_quote->version != OE_SGX_QUOTE_VERSION)
-    {
-        OE_RAISE_MSG(
-            OE_QUOTE_VERIFICATION_ERROR,
-            "Unexpected quote version sgx_quote->version=%d",
-            sgx_quote->version);
-    }
-
-    // The certificate provided in the quote is preferred.
-    if (qe_cert_data.type == OE_SGX_PCK_ID_PCK_CERT_CHAIN)
-    {
-        if (qe_cert_data.size == 0)
-            OE_RAISE(OE_QUOTE_VERIFICATION_ERROR);
-        pem_pck_certificate = qe_cert_data.data;
-        pem_pck_certificate_size = qe_cert_data.size;
-    }
-    else
-    {
-        OE_RAISE_MSG(
-            OE_MISSING_CERTIFICATE_CHAIN,
-            "Unexpected certificate type (qe_cert_data.type=%d)",
-            qe_cert_data.type);
-    }
-
-    if (pem_pck_certificate == NULL)
-        OE_RAISE_MSG(
-            OE_MISSING_CERTIFICATE_CHAIN, "No certificate found", NULL);
+    pem_pck_certificate = qe_cert_data.data;
+    pem_pck_certificate_size = qe_cert_data.size;
 
     // PckCertificate Chain validations.
     {
         // Read and validate the chain.
-        OE_CHECK(oe_cert_chain_read_pem(
-            &pck_cert_chain, pem_pck_certificate, pem_pck_certificate_size));
+        OE_CHECK_MSG(
+            oe_cert_chain_read_pem(
+                &pck_cert_chain, pem_pck_certificate, pem_pck_certificate_size),
+            "Failed to parse certificate chain.",
+            NULL);
 
         // Fetch leaf and root certificates.
-        OE_CHECK(oe_cert_chain_get_leaf_cert(&pck_cert_chain, &leaf_cert));
-        OE_CHECK(oe_cert_chain_get_root_cert(&pck_cert_chain, &root_cert));
-        OE_CHECK(
-            oe_cert_chain_get_cert(&pck_cert_chain, 1, &intermediate_cert));
+        OE_CHECK_MSG(
+            oe_cert_chain_get_leaf_cert(&pck_cert_chain, &leaf_cert),
+            "Failed to get leaf certificate.",
+            NULL);
+        OE_CHECK_MSG(
+            oe_cert_chain_get_root_cert(&pck_cert_chain, &root_cert),
+            "Failed to get root certificate.",
+            NULL);
+        OE_CHECK_MSG(
+            oe_cert_chain_get_cert(&pck_cert_chain, 1, &intermediate_cert),
+            "Failed to get intermediate certificate.",
+            NULL);
 
-        OE_CHECK(oe_cert_get_ec_public_key(&leaf_cert, &leaf_public_key));
-        OE_CHECK(oe_cert_get_ec_public_key(&root_cert, &root_public_key));
+        // Get public keys.
+        OE_CHECK_MSG(
+            oe_cert_get_ec_public_key(&leaf_cert, &leaf_public_key),
+            "Failed to get leaf cert public key.",
+            NULL);
+        OE_CHECK_MSG(
+            oe_cert_get_ec_public_key(&root_cert, &root_public_key),
+            "Failed to get root cert public key.",
+            NULL);
 
         // Ensure that the root certificate matches root of trust.
-        OE_CHECK(oe_ec_public_key_read_pem(
-            &expected_root_public_key,
-            (const uint8_t*)g_expected_root_certificate_key,
-            oe_strlen(g_expected_root_certificate_key) + 1));
-
-        OE_CHECK(oe_ec_public_key_equal(
-            &root_public_key, &expected_root_public_key, &key_equal));
-        if (!key_equal)
-            OE_RAISE(OE_QUOTE_VERIFICATION_ERROR);
-
         OE_CHECK_MSG(
-            oe_enforce_revocation(
-                &leaf_cert, &intermediate_cert, &pck_cert_chain),
-            "enforcing CRL",
+            oe_ec_public_key_read_pem(
+                &expected_root_public_key,
+                (const uint8_t*)g_expected_root_certificate_key,
+                oe_strlen(g_expected_root_certificate_key) + 1),
+            "Failed to read expected root cert key.",
             NULL);
+        OE_CHECK_MSG(
+            oe_ec_public_key_equal(
+                &root_public_key, &expected_root_public_key, &key_equal),
+            "Failed to compare keys.",
+            NULL);
+        if (!key_equal)
+            OE_RAISE_MSG(
+                OE_QUOTE_VERIFICATION_ERROR,
+                "Failed to verify root public key.",
+                NULL);
+
+        /* DEPRECATE: For backward compatibility support (Azure DCAP Client 1.0
+         * (linux)) */
+        if (no_collaterals)
+            OE_CHECK_MSG(
+                oe_enforce_revocation(&leaf_cert, &intermediate_cert),
+                "Failed when enforcing CRL",
+                NULL);
     }
 
     // Quote validations.
     {
         // Verify SHA256 ECDSA (qe_report_body_signature, qe_report_body,
         // PckCertificate.pub_key)
+        //
+        // Hash with PCK(QE report body) == QE report body signature
+        //
         OE_CHECK_MSG(
             _ecdsa_verify(
                 &leaf_public_key,
@@ -257,23 +327,26 @@ oe_result_t oe_verify_quote_internal(
             (const uint8_t*)&quote_auth_data->attestation_key,
             sizeof(quote_auth_data->attestation_key)));
         if (qe_auth_data.size > 0)
-        {
             OE_CHECK(oe_sha256_update(
                 &sha256_ctx, qe_auth_data.data, qe_auth_data.size));
-        }
         OE_CHECK(oe_sha256_final(&sha256_ctx, &sha256));
 
         if (!oe_constant_time_mem_equal(
                 &sha256,
                 &quote_auth_data->qe_report_body.report_data,
                 sizeof(sha256)))
-            OE_RAISE(OE_QUOTE_VERIFICATION_ERROR);
+            OE_RAISE_MSG(
+                OE_QUOTE_VERIFICATION_ERROR,
+                "QE authentication data signature verification failed.",
+                NULL);
 
         // Verify SHA256 ECDSA (attestation_key, SGX_QUOTE_SIGNED_DATA,
         // signature)
+        //
+        // Hash with attestation_key(sgx_quote) == quote_auth_data signature
+        //
         OE_CHECK(_read_public_key(
             &quote_auth_data->attestation_key, &attestation_key));
-
         OE_CHECK_MSG(
             _ecdsa_verify(
                 &attestation_key,
@@ -285,10 +358,13 @@ oe_result_t oe_verify_quote_internal(
     }
 
     // Quoting Enclave validations.
-    OE_CHECK_MSG(
-        oe_enforce_qe_identity(&quote_auth_data->qe_report_body),
-        "Quoting enclave identity checking",
-        NULL);
+    /* DEPRECATE: For backward compatibility support (Azure DCAP Client 1.0
+     * (linux)) */
+    if (no_collaterals)
+        OE_CHECK_MSG(
+            oe_validate_qe_report_body(&quote_auth_data->qe_report_body),
+            "Quoting enclave identity checking",
+            NULL);
     result = OE_OK;
 
 done:
@@ -305,7 +381,7 @@ done:
 
 oe_result_t oe_get_quote_cert_chain_internal(
     const uint8_t* quote,
-    size_t quote_size,
+    const size_t quote_size,
     const uint8_t** pem_pck_certificate,
     size_t* pem_pck_certificate_size,
     oe_cert_chain_t* pck_cert_chain)
@@ -321,41 +397,19 @@ oe_result_t oe_get_quote_cert_chain_internal(
         OE_RAISE(OE_INVALID_PARAMETER);
     }
 
-    OE_CHECK(_parse_quote(
-        quote,
-        quote_size,
-        &sgx_quote,
-        &quote_auth_data,
-        &qe_auth_data,
-        &qe_cert_data));
+    OE_CHECK_MSG(
+        _parse_quote(
+            quote,
+            quote_size,
+            &sgx_quote,
+            &quote_auth_data,
+            &qe_auth_data,
+            &qe_cert_data),
+        "Failed to parse quote.",
+        NULL);
 
-    if (sgx_quote->version != OE_SGX_QUOTE_VERSION)
-    {
-        OE_RAISE_MSG(
-            OE_QUOTE_VERIFICATION_ERROR,
-            "Unexpected quote version sgx_quote->version=%d",
-            sgx_quote->version);
-    }
-
-    // The certificate provided in the quote is preferred.
-    if (qe_cert_data.type == OE_SGX_PCK_ID_PCK_CERT_CHAIN)
-    {
-        if (qe_cert_data.size == 0)
-            OE_RAISE(OE_QUOTE_VERIFICATION_ERROR);
-        *pem_pck_certificate = qe_cert_data.data;
-        *pem_pck_certificate_size = qe_cert_data.size;
-    }
-    else
-    {
-        OE_RAISE_MSG(
-            OE_MISSING_CERTIFICATE_CHAIN,
-            "Unexpected certificate type (qe_cert_data.type=%d)",
-            qe_cert_data.type);
-    }
-
-    if (*pem_pck_certificate == NULL)
-        OE_RAISE_MSG(
-            OE_MISSING_CERTIFICATE_CHAIN, "No certificate found", NULL);
+    *pem_pck_certificate = qe_cert_data.data;
+    *pem_pck_certificate_size = qe_cert_data.size;
 
     // Read and validate the chain.
     OE_CHECK(oe_cert_chain_read_pem(
@@ -363,6 +417,137 @@ oe_result_t oe_get_quote_cert_chain_internal(
 
     result = OE_OK;
 done:
+
+    return result;
+}
+
+oe_result_t oe_verify_quote_internal_with_collaterals(
+    const uint8_t* quote,
+    size_t quote_size,
+    const uint8_t* collaterals,
+    size_t collaterals_size)
+{
+    oe_result_t result = OE_UNEXPECTED;
+
+    const uint8_t* pem_pck_certificate = NULL;
+    size_t pem_pck_certificate_size = 0;
+    oe_cert_chain_t pck_cert_chain = {0};
+    oe_cert_t leaf_cert = {0};
+    sgx_quote_t* sgx_quote = NULL;
+    sgx_quote_auth_data_t* quote_auth_data = NULL;
+    sgx_qe_auth_data_t qe_auth_data = {0};
+    sgx_qe_cert_data_t qe_cert_data = {0};
+    oe_collaterals_header_t* col_header = NULL;
+    oe_collaterals_t* col = NULL;
+    bool no_collaterals = false;
+
+    if (quote == NULL)
+        OE_RAISE(OE_INVALID_PARAMETER);
+
+    if (collaterals == NULL)
+    {
+        result = oe_get_collaterals_internal(
+            quote, quote_size, (uint8_t**)&collaterals, &collaterals_size);
+
+        if (result == OE_QUOTE_PROVIDER_CALL_ERROR)
+        {
+            /* DEPRECATE. Backward compatibility for Azure DCAP client 1.0
+             * (Linux) */
+
+            // No qe_identity info returned from the quote provider, this could
+            // be because either get_qe_identity_info API was not supported or
+            // unexpected error. In both cases, check against hardcoded quoting
+            // enclave properties instead Assert that the qe report's MRSIGNER
+            // matches Intel's quoting. We will remove these hardcoded values
+            // once the libdcap_quoteprov.so was updated to support qe identity
+            // feature.
+            no_collaterals = true;
+        }
+        else
+        {
+            OE_CHECK_MSG(
+                result, "Failed to get collaterals. %s", oe_result_str(result));
+        }
+    }
+
+    OE_CHECK_MSG(
+        oe_verify_quote_internal(quote, quote_size, no_collaterals),
+        "Failed to verify remote quote.",
+        NULL);
+
+    if (!no_collaterals)
+    {
+        OE_CHECK_MSG(
+            _parse_quote(
+                quote,
+                quote_size,
+                &sgx_quote,
+                &quote_auth_data,
+                &qe_auth_data,
+                &qe_cert_data),
+            "Failed to parse quote.",
+            NULL);
+
+        pem_pck_certificate = qe_cert_data.data;
+        pem_pck_certificate_size = qe_cert_data.size;
+
+        OE_CHECK_MSG(
+            oe_cert_chain_read_pem(
+                &pck_cert_chain, pem_pck_certificate, pem_pck_certificate_size),
+            "Failed to parse certificate chain.",
+            NULL);
+
+        // Fetch leaf and intermediate certificates.
+        OE_CHECK_MSG(
+            oe_cert_chain_get_leaf_cert(&pck_cert_chain, &leaf_cert),
+            "Failed to get leaf certificate. %s",
+            oe_result_str(result));
+
+        // Verify collateral info
+        col_header = (oe_collaterals_header_t*)collaterals;
+        col = (oe_collaterals_t*)(collaterals + OE_COLLATERALS_HEADER_SIZE);
+
+        if (col_header->id_version != OE_COLLATERALS_HEADER_VERSION)
+        {
+            OE_RAISE_MSG(
+                OE_INVALID_PARAMETER,
+                "Collateral version id is invalid.",
+                NULL);
+        }
+        if (col_header->enclave_type != OE_ENCLAVE_TYPE_SGX)
+        {
+            OE_RAISE_MSG(
+                OE_INVALID_PARAMETER,
+                "Collateral enclave type is invalid.",
+                NULL);
+        }
+
+        OE_CHECK_MSG(
+            oe_validate_revocation_list(&leaf_cert, &col->revocation_info),
+            "Failed to validate CRL and TCB collaterals. %s",
+            oe_result_str(result));
+
+        //
+        // TODO: Skipping this check since cannot get qe_identity_info from
+        //       az-dcap-client.
+        //
+        // OE_CHECK_MSG(
+        //     oe_validate_qe_identity(
+        //         &quote_auth_data->qe_report_body,
+        //         &col->qe_id_info),
+        //     "Quoting enclave identity checking",
+        //     NULL);
+        OE_CHECK_MSG(
+            oe_validate_qe_report_body(&quote_auth_data->qe_report_body),
+            "Failed to validate QE report body identity. %s",
+            oe_result_str(result));
+    }
+
+    result = OE_OK;
+
+done:
+    oe_cert_free(&leaf_cert);
+    oe_cert_chain_free(&pck_cert_chain);
 
     return result;
 }

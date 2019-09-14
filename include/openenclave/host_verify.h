@@ -43,6 +43,32 @@ oe_result_t oe_verify_remote_report(
     oe_report_t* parsed_report);
 
 /**
+ * Verify the integrity of the remote report and its signature,
+ * with optional collateral data.
+ *
+ * This function verifies that the report signature is valid. It
+ * verifies that the signing authority is rooted to a trusted authority
+ * such as the enclave platform manufacturer.
+ *
+ * @param report The buffer containing the report to verify.
+ * @param report_size The size of the **report** buffer.
+ * @param collaterals The collateral data that is associated with the report.
+ * @param collaterals_size The size of the **collaterals** buffer.
+ * @param parsed_report Optional **oe_report_t** structure to populate
+ * with the report properties in a standard format.
+ *
+ * @retval OE_OK The report was successfully verified.
+ * @retval OE_INVALID_PARAMETER At least one parameter is invalid.
+ *
+ */
+oe_result_t oe_verify_remote_report_with_collaterals(
+    const uint8_t* report,
+    size_t report_size,
+    const uint8_t* collaterals,
+    size_t collaterals_size,
+    oe_report_t* parsed_report);
+
+/**
  * identity validation callback type
  * @param[in] identity a pointer to an enclave's identity information
  * @param[in] arg caller defined context

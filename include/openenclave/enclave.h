@@ -345,7 +345,7 @@ void oe_free_target_info(void* target_info);
 
 /**
  * Get collateral data which can be used with
- * oe_verify_report_with_collateral().
+ * oe_verify_report_with_collaterals().
  *
  * @param collaterals_buffer The buffer containing the collaterals to parse.
  * @param collaterals_buffer_size The size of the **collaterals_buffer**.
@@ -361,7 +361,7 @@ oe_result_t oe_get_collaterals(
  *
  * @param collaterals_buffer The buffer containing the collaterals.
  */
-void oe_cleanup_collaterals(uint8_t* collaterals_buffer);
+void oe_free_collaterals(uint8_t* collaterals_buffer);
 
 /**
  * Parse an enclave report into a standard format for reading.
@@ -403,6 +403,33 @@ oe_result_t oe_parse_report(
 oe_result_t oe_verify_report(
     const uint8_t* report,
     size_t report_size,
+    oe_report_t* parsed_report);
+
+/**
+ * Verify the integrity of the report and its signature,
+ * with optional collateral data that is associated with the report.
+ *
+ * This function verifies that the report signature is valid. If the report is
+ * local, it verifies that it is correctly signed by the enclave
+ * platform. If the report is remote, it verifies that the signing authority is
+ * rooted to a trusted authority such as the enclave platform manufacturer.
+ *
+ * @param report The buffer containing the report to verify.
+ * @param report_size The size of the **report** buffer.
+ * @param collaterals The collateral data that is associated with the report.
+ * @param collaterals_size The size of the **collaterals** buffer.
+ * @param parsed_report Optional **oe_report_t** structure to populate with the
+ * report properties in a standard format.
+ *
+ * @retval OE_OK The report was successfully created.
+ * @retval OE_INVALID_PARAMETER At least one parameter is invalid.
+ *
+ */
+oe_result_t oe_verify_report_with_collaterals(
+    const uint8_t* report,
+    size_t report_size,
+    const uint8_t* collaterals,
+    size_t collaterals_size,
     oe_report_t* parsed_report);
 
 #if (OE_API_VERSION < 2)

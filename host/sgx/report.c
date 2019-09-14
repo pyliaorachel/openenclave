@@ -43,7 +43,7 @@ static oe_result_t _get_local_report(
     if (report_buffer == NULL || *report_buffer_size < sizeof(sgx_report_t))
     {
         *report_buffer_size = sizeof(sgx_report_t);
-        OE_RAISE(OE_BUFFER_TOO_SMALL);
+        OE_RAISE_NO_TRACE(OE_BUFFER_TOO_SMALL);
     }
 
     OE_CHECK(oe_get_sgx_report_ecall(
@@ -266,10 +266,12 @@ void oe_free_report(uint8_t* report_buffer)
     free(report_buffer);
 }
 
-oe_result_t oe_verify_report(
+oe_result_t oe_verify_report_with_collaterals(
     oe_enclave_t* enclave,
     const uint8_t* report,
     size_t report_size,
+    const uint8_t* collaterals,
+    size_t collaterals_size,
     oe_report_t* parsed_report)
 {
     oe_result_t result = OE_UNEXPECTED;
@@ -294,8 +296,11 @@ oe_result_t oe_verify_report(
         OE_CHECK(oe_initialize_quote_provider());
 
         // Quote attestation can be done entirely on the host side.
-        OE_CHECK(oe_verify_quote_internal(
-            header->report, header->report_size, NULL, 0, NULL, 0, NULL, 0));
+        OE_CHECK(oe_verify_quote_internal_with_collaterals(
+            header->report,
+            header->report_size,
+            collaterals,
+            collaterals_size));
     }
     else if (header->report_type == OE_REPORT_TYPE_SGX_LOCAL)
     {
@@ -303,6 +308,14 @@ oe_result_t oe_verify_report(
 
         if (enclave == NULL)
             OE_RAISE(OE_INVALID_PARAMETER);
+
+        if (collaterals != NULL || collaterals_size > 0)
+        {
+            OE_RAISE_MSG(
+                OE_UNSUPPORTED,
+                "Local reports should not have collaterals.",
+                NULL);
+        }
 
         OE_CHECK(oe_verify_report_ecall(enclave, &retval, report, report_size));
 
@@ -320,4 +333,14 @@ oe_result_t oe_verify_report(
     result = OE_OK;
 done:
     return result;
+}
+
+oe_result_t oe_verify_report(
+    oe_enclave_t* enclave,
+    const uint8_t* report,
+    size_t report_size,
+    oe_report_t* parsed_report)
+{
+    return oe_verify_report_with_collaterals(
+        enclave, report, report_size, NULL, 0, parsed_report);
 }

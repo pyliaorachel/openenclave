@@ -10,7 +10,7 @@
 OE_EXTERNC_BEGIN
 
 oe_result_t oe_get_collaterals_internal(
-    uint8_t* remote_report,
+    const uint8_t* remote_report,
     size_t remote_report_size,
     uint8_t** collaterals_buffer,
     size_t* collaterals_buffer_size);

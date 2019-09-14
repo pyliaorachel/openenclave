@@ -13,6 +13,7 @@
 #define GetCollaterals oe_get_collaterals
 
 #define VerifyReport oe_verify_report
+#define VerifyReportWithCollaterals oe_verify_report_with_collaterals
 
 #else
 
@@ -47,6 +48,32 @@ oe_result_t VerifyReport(
 
     // Local attestation requires enclave.
     return oe_verify_report(g_enclave, report, report_size, parsed_report);
+}
+
+oe_result_t VerifyReportWithCollaterals(
+    const uint8_t* report,
+    size_t report_size,
+    const uint8_t* collaterals,
+    size_t collaterals_size,
+    oe_report_t* parsed_report)
+{
+    oe_report_t tmp_report = {0};
+    OE_TEST(oe_parse_report(report, report_size, &tmp_report) == OE_OK);
+
+    if (tmp_report.identity.attributes & OE_REPORT_ATTRIBUTES_REMOTE)
+    {
+        return oe_verify_report_with_collaterals(
+            g_enclave,
+            report,
+            report_size,
+            collaterals,
+            collaterals_size,
+            parsed_report);
+    }
+    else
+    {
+        return OE_UNSUPPORTED;
+    }
 }
 
 #endif
@@ -901,8 +928,8 @@ void test_verify_report_with_collaterals()
     size_t report_ptr_size;
     uint8_t* report_buffer_ptr;
 
-    size_t collaterals_size;
-    uint8_t* collaterals_buffer_ptr;
+    size_t collaterals_ptr_size = 0;
+    uint8_t* collaterals_buffer_ptr = NULL;
 
     /* Test 1: Verify report with collaterals */
     OE_TEST(
@@ -910,14 +937,53 @@ void test_verify_report_with_collaterals()
             flags, NULL, 0, NULL, 0, &report_buffer_ptr, &report_ptr_size) ==
         OE_OK);
 
+    /* Verify report without collaterals */
     OE_TEST(
-        GetCollaterals(&collaterals_buffer_ptr, &collaterals_size) == OE_OK);
+        VerifyReportWithCollaterals(
+            report_buffer_ptr, report_ptr_size, NULL, 0, NULL) == OE_OK);
 
-    /* Test 2: Verify report without collaterals */
+    if (GetCollaterals(&collaterals_buffer_ptr, &collaterals_ptr_size) == OE_OK)
+    {
+        oe_collaterals_header_t* col_header = NULL;
+        oe_collaterals_t* col = NULL;
 
-    /* Test 3: Verify report with collaterals bad collaterals */
+        OE_TEST(
+            VerifyReportWithCollaterals(
+                report_buffer_ptr,
+                report_ptr_size,
+                collaterals_buffer_ptr,
+                collaterals_ptr_size,
+                NULL) == OE_OK);
 
-    oe_cleanup_collaterals(collaterals_buffer_ptr);
+        /* Verify report with collaterals bad collaterals */
+        col_header = (oe_collaterals_header_t*)collaterals_buffer_ptr;
+        col =
+            (oe_collaterals_t*)(collaterals_buffer_ptr + OE_COLLATERALS_HEADER_SIZE);
+
+        /* Test version id */
+        col_header->id_version++;
+        OE_TEST(
+            VerifyReportWithCollaterals(
+                report_buffer_ptr,
+                report_ptr_size,
+                collaterals_buffer_ptr,
+                collaterals_ptr_size,
+                NULL) == OE_INVALID_PARAMETER);
+        col_header->id_version--;
+
+        /* Test enclave_type */
+        col_header->enclave_type = OE_ENCLAVE_TYPE_OPTEE;
+        OE_TEST(
+            VerifyReportWithCollaterals(
+                report_buffer_ptr,
+                report_ptr_size,
+                collaterals_buffer_ptr,
+                collaterals_ptr_size,
+                NULL) == OE_INVALID_PARAMETER);
+        col_header->enclave_type = OE_ENCLAVE_TYPE_SGX;
+    }
+
+    oe_free_collaterals(collaterals_buffer_ptr);
     oe_free_report(report_buffer_ptr);
 
     collaterals_buffer_ptr = NULL;
