@@ -59,14 +59,18 @@ typedef struct _oe_collaterals_header
     /** Version of the oe_collaterals_t structure */
     uint32_t id_version;
 
+    /** TEE type */
+    oe_enclave_type_t enclave_type;
+
     /** Size of the collaterals */
     uint32_t collaterals_size;
 
+    /** Collaterals data **/
     uint8_t collaterals[];
 
 } oe_collaterals_header_t;
 
-OE_STATIC_ASSERT(sizeof(oe_collaterals_header_t) == 8);
+OE_STATIC_ASSERT(sizeof(oe_collaterals_header_t) == 12);
 
 /*
 **==============================================================================
@@ -94,7 +98,9 @@ OE_STATIC_ASSERT(
 
 #define OE_COLLATERALS_HEADER_VERSION (1)
 #define OE_COLLATERALS_HEADER_SIZE (sizeof(oe_collaterals_header_t))
-#define OE_COLLATERALS_SIZE (sizeof(oe_collaterals_t))
+#define OE_COLLATERALS_BODY_SIZE (sizeof(oe_collaterals_t))
+#define OE_COLLATERALS_SIZE \
+    (OE_COLLATERALS_HEADER_SIZE + OE_COLLATERALS_BODY_SIZE)
 /*
 **==============================================================================
 **

@@ -208,6 +208,7 @@ int main(int argc, const char* argv[])
     OE_TEST(enclave_test_local_report(enclave, &target_info) == OE_OK);
     OE_TEST(enclave_test_parse_report_negative(enclave) == OE_OK);
     OE_TEST(enclave_test_local_verify_report(enclave) == OE_OK);
+    OE_TEST(enclave_test_verify_report_with_collaterals(enclave) == OE_OK);
 
     // Get current time and pass it to enclave.
     std::time_t t = std::time(0);

@@ -11,15 +11,11 @@
 
 OE_EXTERNC_BEGIN
 
-oe_result_t oe_verify_quote_internal(
-    const uint8_t* enc_quote,
+oe_result_t oe_verify_quote_internal_with_collaterals(
+    const uint8_t* quote,
     size_t quote_size,
-    const uint8_t* enc_pem_pck_certificate,
-    size_t pem_pck_certificate_size,
-    const uint8_t* enc_pck_crl,
-    size_t enc_pck_crl_size,
-    const uint8_t* enc_tcb_info_json,
-    size_t enc_tcb_info_json_size);
+    const uint8_t* collaterals,
+    size_t collaterals_size);
 
 /*!
  * Retrieves certifate chain from the quote.
@@ -35,7 +31,7 @@ oe_result_t oe_verify_quote_internal(
  */
 oe_result_t oe_get_quote_cert_chain_internal(
     const uint8_t* quote,
-    size_t quote_size,
+    const size_t quote_size,
     const uint8_t** pem_pck_certificate,
     size_t* pem_pck_certificate_size,
     oe_cert_chain_t* pck_cert_chain);

@@ -11,7 +11,7 @@
 #include "revocation.h"
 
 oe_result_t oe_get_collaterals_internal(
-    uint8_t* remote_report,
+    const uint8_t* remote_report,
     size_t remote_report_size,
     uint8_t** collaterals_buffer,
     size_t* collaterals_buffer_size)
@@ -37,8 +37,7 @@ oe_result_t oe_get_collaterals_internal(
     *collaterals_buffer = NULL;
     *collaterals_buffer_size = 0;
 
-    buffer = (uint8_t*)oe_calloc(
-        1, OE_COLLATERALS_HEADER_SIZE + OE_COLLATERALS_SIZE);
+    buffer = (uint8_t*)oe_calloc(1, OE_COLLATERALS_SIZE);
     if (buffer == NULL)
     {
         OE_RAISE(OE_OUT_OF_MEMORY);
@@ -49,7 +48,8 @@ oe_result_t oe_get_collaterals_internal(
 
     // Collateral header initialization
     header->id_version = OE_COLLATERALS_HEADER_VERSION;
-    header->collaterals_size = OE_COLLATERALS_SIZE;
+    header->enclave_type = OE_ENCLAVE_TYPE_SGX;
+    header->collaterals_size = OE_COLLATERALS_BODY_SIZE;
 
     //
     // Get the uri from the quote certificates, and then get the
@@ -57,35 +57,43 @@ oe_result_t oe_get_collaterals_internal(
     //
 
     // Get PCK cert chain from the quote.
-    OE_CHECK(oe_get_quote_cert_chain_internal(
-        remote_report,
-        remote_report_size,
-        &pem_pck_certificate,
-        &pem_pck_certificate_size,
-        &pck_cert_chain));
+    OE_CHECK_MSG(
+        oe_get_quote_cert_chain_internal(
+            remote_report,
+            remote_report_size,
+            &pem_pck_certificate,
+            &pem_pck_certificate_size,
+            &pck_cert_chain),
+        "Failed to get certificate chain from quote. %s",
+        oe_result_str(result));
 
     // Fetch leaf and intermediate certificates.
-    OE_CHECK(oe_cert_chain_get_leaf_cert(&pck_cert_chain, &leaf_cert));
-    OE_CHECK(oe_cert_chain_get_cert(&pck_cert_chain, 1, &intermediate_cert));
+    OE_CHECK_MSG(
+        oe_cert_chain_get_leaf_cert(&pck_cert_chain, &leaf_cert),
+        "Failed to get leaf certificate. %s",
+        oe_result_str(result));
+    OE_CHECK_MSG(
+        oe_cert_chain_get_cert(&pck_cert_chain, 1, &intermediate_cert),
+        "Failed to get intermediate certificate. %s",
+        oe_result_str(result));
 
     // Get revocation information
-    OE_CHECK(oe_get_revocation_info_from_certs(
-        &leaf_cert, &intermediate_cert, &(collaterals->revocation_info)));
+    OE_CHECK_MSG(
+        oe_get_revocation_info_from_certs(
+            &leaf_cert, &intermediate_cert, &(collaterals->revocation_info)),
+        "Failed to get certificate revocation information. %s",
+        oe_result_str(result));
+
+    // TODO: Application specific collaterals
+    collaterals->app_collaterals_size = 0;
 
     //
     // QE identify info
     //
-    result = oe_get_qe_identity_info(&(collaterals->qe_id_info));
-    if (OE_QUOTE_PROVIDER_CALL_ERROR != result && OE_OK != result)
-    {
-        OE_RAISE_MSG(
-            result,
-            "oe_get_qe_identity_info returned unexpected result: %s.",
-            oe_result_str(result));
-    }
-
-    // TODO: Application specific collaterals
-    collaterals->app_collaterals_size = 0;
+    OE_CHECK_MSG(
+        oe_get_qe_identity_info(&(collaterals->qe_id_info)),
+        "Failed to get quote enclave identity information. %s",
+        oe_result_str(result));
 
     result = OE_OK;
 done:
@@ -96,8 +104,7 @@ done:
     if (result == OE_OK)
     {
         *collaterals_buffer = buffer;
-        *collaterals_buffer_size =
-            OE_COLLATERALS_HEADER_SIZE + OE_COLLATERALS_SIZE;
+        *collaterals_buffer_size = OE_COLLATERALS_SIZE;
     }
     else if (buffer)
     {

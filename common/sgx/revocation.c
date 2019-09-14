@@ -23,6 +23,17 @@
 // Defaults to Intel SGX 1.8 Release Date.
 oe_datetime_t _sgx_minimim_crl_tcb_issue_date = {2017, 3, 17};
 
+static void _trace_datetime(const char* msg, const oe_datetime_t* date)
+{
+    if (oe_get_current_logging_level() >= OE_LOG_LEVEL_INFO)
+    {
+        char str[21];
+        size_t size = sizeof(str);
+        oe_datetime_to_string(date, str, &size);
+        OE_TRACE_INFO("%s%s\n", msg, str);
+    }
+}
+
 oe_result_t __oe_sgx_set_minimum_crl_tcb_issue_date(
     uint32_t year,
     uint32_t month,
@@ -42,6 +53,62 @@ done:
     return result;
 }
 
+/**
+ * Validates TCB CRL dates
+ */
+static oe_result_t _validate_tcbcrl_dates(
+    const oe_parsed_tcb_info_t* parsed_tcb_info,
+    const oe_crl_t* crls,
+    const uint32_t crls_count,
+    const oe_datetime_t* min_issue_date)
+{
+    oe_result_t result = OE_UNEXPECTED;
+
+    oe_datetime_t crl_this_update_date = {0};
+    oe_datetime_t crl_next_update_date = {0};
+
+    // Check that the tcb has been issued after the earliest date that the
+    // enclave accepts.
+    if (oe_datetime_compare(&parsed_tcb_info->issue_date, min_issue_date) != 1)
+        OE_RAISE_MSG(
+            OE_INVALID_REVOCATION_INFO,
+            "TCB CRL minimum issue date verification failed. %s",
+            oe_result_str(result));
+
+    // Check that the CRLs have not expired.
+    // The next update of the CRL must be after the earliest date that
+    // the enclave accepts.
+    for (uint32_t i = 0; i < crls_count; ++i)
+    {
+        OE_CHECK_MSG(
+            oe_crl_get_update_dates(
+                &crls[i], &crl_this_update_date, &crl_next_update_date),
+            "Failed to get CRL update dates. %s",
+            oe_result_str(result));
+
+        _trace_datetime("crl this update date ", &crl_this_update_date);
+        _trace_datetime("crl next update date ", &crl_next_update_date);
+
+        // CRL must be issued after minimum date.
+        if (oe_datetime_compare(&crl_this_update_date, min_issue_date) != 1)
+            OE_RAISE_MSG(
+                OE_INVALID_REVOCATION_INFO,
+                "Invalid TCB CRL update date.",
+                NULL);
+
+        // Also check that next update date is after minimum date.
+        if (oe_datetime_compare(&crl_next_update_date, min_issue_date) != 1)
+            OE_RAISE(
+                OE_INVALID_REVOCATION_INFO,
+                "Invalid TCB CRL next update date.",
+                NULL);
+    }
+
+    result = OE_OK;
+done:
+
+    return result;
+}
 /**
  * Parse sgx extensions from given cert.
  */
@@ -141,17 +208,6 @@ done:
     return result;
 }
 
-static void _trace_datetime(const char* msg, const oe_datetime_t* date)
-{
-    if (oe_get_current_logging_level() >= OE_LOG_LEVEL_INFO)
-    {
-        char str[21];
-        size_t size = sizeof(str);
-        oe_datetime_to_string(date, str, &size);
-        OE_TRACE_INFO("%s%s\n", msg, str);
-    }
-}
-
 /**
  * Call into host to fetch revocation information given the CA and PCK
  * certificates.
@@ -199,71 +255,82 @@ done:
 
 oe_result_t oe_enforce_revocation(
     oe_cert_t* leaf_cert,
-    oe_cert_t* intermediate_cert,
-    oe_cert_chain_t* pck_cert_chain)
+    oe_cert_t* intermediate_cert)
 {
-    oe_result_t result = OE_FAILURE;
-    ParsedExtensionInfo parsed_extension_info = {{0}};
+    oe_result_t result = OE_UNEXPECTED;
     oe_get_revocation_info_args_t revocation_args = {0};
+
+    OE_CHECK(oe_get_revocation_info_from_certs(
+        leaf_cert, intermediate_cert, &revocation_args));
+
+    OE_CHECK(oe_validate_revocation_list(leaf_cert, &revocation_args));
+
+    result = OE_OK;
+
+done:
+    oe_cleanup_get_revocation_info_args(&revocation_args);
+
+    return result;
+}
+
+oe_result_t oe_validate_revocation_list(
+    oe_cert_t* leaf_cert,
+    oe_get_revocation_info_args_t* revocation_args)
+{
+    oe_result_t result = OE_UNEXPECTED;
+
+    ParsedExtensionInfo parsed_extension_info = {{0}};
     oe_cert_chain_t tcb_issuer_chain = {0};
     oe_cert_chain_t crl_issuer_chain[3] = {{{0}}};
     oe_parsed_tcb_info_t parsed_tcb_info = {0};
     oe_tcb_level_t platform_tcb_level = {{0}};
-    char* intermediate_crl_url = NULL;
-    char* leaf_crl_url = NULL;
+
     oe_crl_t crls[2] = {{{0}}};
     const oe_crl_t* crl_ptrs[2] = {&crls[0], &crls[1]};
-    oe_datetime_t crl_this_update_date = {0};
-    oe_datetime_t crl_next_update_date = {0};
 
-    OE_UNUSED(pck_cert_chain);
-
-    if (intermediate_cert == NULL || leaf_cert == NULL)
+    if (leaf_cert == NULL || revocation_args == NULL)
         OE_RAISE(OE_INVALID_PARAMETER);
 
     OE_STATIC_ASSERT(
         OE_COUNTOF(crl_issuer_chain) ==
-        OE_COUNTOF(revocation_args.crl_issuer_chain));
+        OE_COUNTOF(revocation_args->crl_issuer_chain));
 
-    // Gather fmspc.
-    OE_CHECK(_parse_sgx_extensions(leaf_cert, &parsed_extension_info));
-    OE_CHECK(oe_memcpy_s(
-        revocation_args.fmspc,
-        sizeof(revocation_args.fmspc),
-        parsed_extension_info.fmspc,
-        sizeof(parsed_extension_info.fmspc)));
-
-    // Gather CRL distribution point URLs from certs.
-    OE_CHECK(
-        _get_crl_distribution_point(intermediate_cert, &intermediate_crl_url));
-    OE_CHECK(_get_crl_distribution_point(leaf_cert, &leaf_crl_url));
-
-    revocation_args.crl_urls[0] = leaf_crl_url;
-    revocation_args.crl_urls[1] = intermediate_crl_url;
-    revocation_args.num_crl_urls = 2;
-
-    OE_CHECK(oe_get_revocation_info(&revocation_args));
+    OE_CHECK_MSG(
+        _parse_sgx_extensions(leaf_cert, &parsed_extension_info),
+        "Failed to parse SGX extensions from leaf cert. %s",
+        oe_result_str(result));
 
     // Apply revocation info.
-    OE_CHECK(oe_cert_chain_read_pem(
-        &tcb_issuer_chain,
-        revocation_args.tcb_issuer_chain,
-        revocation_args.tcb_issuer_chain_size));
+    OE_CHECK_MSG(
+        oe_cert_chain_read_pem(
+            &tcb_issuer_chain,
+            revocation_args->tcb_issuer_chain,
+            revocation_args->tcb_issuer_chain_size),
+        "Failed to read TCB chain certificate. %s",
+        oe_result_str(result));
 
     // Read CRLs for each cert other than root. If any CRL is missing, the read
     // will error out.
-    for (uint32_t i = 0; i < revocation_args.num_crl_urls; ++i)
+    for (uint32_t i = 0; i < revocation_args->num_crl_urls; ++i)
     {
-        OE_CHECK(oe_crl_read_der(
-            &crls[i], revocation_args.crl[i], revocation_args.crl_size[i]));
-        OE_CHECK(oe_cert_chain_read_pem(
-            &crl_issuer_chain[i],
-            revocation_args.crl_issuer_chain[i],
-            revocation_args.crl_issuer_chain_size[i]));
+        OE_CHECK_MSG(
+            oe_crl_read_der(
+                &crls[i],
+                revocation_args->crl[i],
+                revocation_args->crl_size[i]),
+            "Failed to read CRL. %s",
+            oe_result_str(result));
+        OE_CHECK_MSG(
+            oe_cert_chain_read_pem(
+                &crl_issuer_chain[i],
+                revocation_args->crl_issuer_chain[i],
+                revocation_args->crl_issuer_chain_size[i]),
+            "Failed to read CRL cert chain. %s",
+            oe_result_str(result));
         OE_TRACE_VERBOSE(
             "CRL certificate[%d]: \n[%s]\n",
             i,
-            revocation_args.crl_issuer_chain[i]);
+            revocation_args->crl_issuer_chain[i]);
     }
 
     // Verify the leaf cert.
@@ -281,8 +348,11 @@ oe_result_t oe_enforce_revocation(
     // constraint. If the crl_issuer_chain was different from the certificate
     // chain, then verification would fail because the CRLs will not be found
     // for certificates in the chain.
-    OE_CHECK(oe_cert_verify(
-        leaf_cert, crl_issuer_chain, crl_ptrs, OE_COUNTOF(crl_ptrs)));
+    OE_CHECK_MSG(
+        oe_cert_verify(
+            leaf_cert, crl_issuer_chain, crl_ptrs, OE_COUNTOF(crl_ptrs)),
+        "Failed to verify leaf certificate. %s",
+        oe_result_str(result));
 
     for (uint32_t i = 0; i < OE_COUNTOF(platform_tcb_level.sgx_tcb_comp_svn);
          ++i)
@@ -293,62 +363,45 @@ oe_result_t oe_enforce_revocation(
     platform_tcb_level.pce_svn = parsed_extension_info.pce_svn;
     platform_tcb_level.status = OE_TCB_LEVEL_STATUS_UNKNOWN;
 
-    OE_CHECK(oe_parse_tcb_info_json(
-        revocation_args.tcb_info,
-        revocation_args.tcb_info_size,
-        &platform_tcb_level,
-        &parsed_tcb_info));
+    OE_CHECK_MSG(
+        oe_parse_tcb_info_json(
+            revocation_args->tcb_info,
+            revocation_args->tcb_info_size,
+            &platform_tcb_level,
+            &parsed_tcb_info),
+        "Failed to parse TCB info. %s",
+        oe_result_str(result));
 
-    OE_CHECK(oe_verify_ecdsa256_signature(
-        parsed_tcb_info.tcb_info_start,
-        parsed_tcb_info.tcb_info_size,
-        (sgx_ecdsa256_signature_t*)parsed_tcb_info.signature,
-        &tcb_issuer_chain));
+    OE_CHECK_MSG(
+        oe_verify_ecdsa256_signature(
+            parsed_tcb_info.tcb_info_start,
+            parsed_tcb_info.tcb_info_size,
+            (sgx_ecdsa256_signature_t*)parsed_tcb_info.signature,
+            &tcb_issuer_chain),
+        "Failed to verify ECDSA 256 signature in TCB. %s",
+        oe_result_str(result));
 
-    // Check that the tcb has been issued after the earliest date that the
-    // enclave accepts.
-    if (oe_datetime_compare(
-            &parsed_tcb_info.issue_date, &_sgx_minimim_crl_tcb_issue_date) != 1)
-        OE_RAISE(OE_INVALID_REVOCATION_INFO);
-
-    // Check that the CRLs have not expired.
-    // The next update of the CRL must be after the earliest date that
-    // the enclave accepts.
-    for (uint32_t i = 0; i < OE_COUNTOF(crls); ++i)
-    {
-        OE_CHECK(oe_crl_get_update_dates(
-            &crls[i], &crl_this_update_date, &crl_next_update_date));
-
-        _trace_datetime("crl this update date ", &crl_this_update_date);
-        _trace_datetime("crl next update date ", &crl_next_update_date);
-
-        // CRL must be issued after minimum date.
-        if (oe_datetime_compare(
-                &crl_this_update_date, &_sgx_minimim_crl_tcb_issue_date) != 1)
-            OE_RAISE(OE_INVALID_REVOCATION_INFO);
-
-        // Also check that next update date is after minimum date.
-        if (oe_datetime_compare(
-                &crl_next_update_date, &_sgx_minimim_crl_tcb_issue_date) != 1)
-            OE_RAISE(OE_INVALID_REVOCATION_INFO);
-    }
+    OE_CHECK_MSG(
+        _validate_tcbcrl_dates(
+            &parsed_tcb_info,
+            crls,
+            OE_COUNTOF(crls),
+            &_sgx_minimim_crl_tcb_issue_date),
+        "Failed to pass TCB CRL checks. %s",
+        oe_result_str(result));
 
     result = OE_OK;
 
 done:
-    for (int32_t i = (int32_t)revocation_args.num_crl_urls - 1; i >= 0; --i)
+    for (int32_t i = (int32_t)revocation_args->num_crl_urls - 1; i >= 0; --i)
     {
         oe_crl_free(&crls[i]);
     }
-    for (uint32_t i = 0; i < revocation_args.num_crl_urls; ++i)
+    for (uint32_t i = 0; i < revocation_args->num_crl_urls; ++i)
     {
         oe_cert_chain_free(&crl_issuer_chain[i]);
     }
     oe_cert_chain_free(&tcb_issuer_chain);
-
-    oe_free(leaf_crl_url);
-    oe_free(intermediate_crl_url);
-    oe_cleanup_get_revocation_info_args(&revocation_args);
 
     return result;
 }

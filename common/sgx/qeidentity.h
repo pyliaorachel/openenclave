@@ -12,7 +12,19 @@
 
 OE_EXTERNC_BEGIN
 
-oe_result_t oe_enforce_qe_identity(sgx_report_body_t* qe_report_body);
+/**
+ * Deprecated:
+ *
+ * This is needed to be backwards compatible
+ * with Azure DCAP client 1.0 (Linux).  Where the QE identity
+ * info is not available and therefore can not use
+ * collaterals.
+ */
+oe_result_t oe_validate_qe_report_body(sgx_report_body_t* qe_report_body);
+
+oe_result_t oe_validate_qe_identity(
+    sgx_report_body_t* qe_report_body,
+    oe_get_qe_identity_info_args_t* qe_id_args);
 
 // Fetch qe identity info using the specified args structure.
 oe_result_t oe_get_qe_identity_info(oe_get_qe_identity_info_args_t* args);

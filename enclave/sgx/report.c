@@ -42,12 +42,15 @@ done:
     return result;
 }
 
-// oe_verify_report needs crypto library's cmac computation. oecore does not
-// have crypto functionality. Hence oe_verify_report is implemented here instead
-// of in oecore. Also see ECall_HandleVerifyReport below.
-oe_result_t oe_verify_report(
+// oe_verify_report_with_collateral needs crypto library's cmac computation.
+// oecore does not have crypto functionality. Hence
+// oe_verify_report_with_collateral is implemented here instead of in oecore.
+// Also see ECall_HandleVerifyReport below.
+oe_result_t oe_verify_report_with_collaterals(
     const uint8_t* report,
     size_t report_size,
+    const uint8_t* collaterals,
+    size_t collaterals_size,
     oe_report_t* parsed_report)
 {
     oe_result_t result = OE_UNEXPECTED;
@@ -66,11 +69,22 @@ oe_result_t oe_verify_report(
 
     if (header->report_type == OE_REPORT_TYPE_SGX_REMOTE)
     {
-        OE_CHECK(oe_verify_quote_internal(
-            header->report, header->report_size, NULL, 0, NULL, 0, NULL, 0));
+        OE_CHECK(oe_verify_quote_internal_with_collaterals(
+            header->report,
+            header->report_size,
+            collaterals,
+            collaterals_size));
     }
     else if (header->report_type == OE_REPORT_TYPE_SGX_LOCAL)
     {
+        if (collaterals != NULL || collaterals_size > 0)
+        {
+            OE_RAISE_MSG(
+                OE_UNSUPPORTED,
+                "Local reports should not have collaterals.",
+                NULL);
+        }
+
         sgx_report = (sgx_report_t*)header->report;
 
         OE_CHECK(_get_report_key(sgx_report, &sgx_key));
@@ -105,6 +119,15 @@ done:
     oe_secure_zero_fill(&sgx_key, sizeof(sgx_key));
 
     return result;
+}
+
+oe_result_t oe_verify_report(
+    const uint8_t* report,
+    size_t report_size,
+    oe_report_t* parsed_report)
+{
+    return oe_verify_report_with_collaterals(
+        report, report_size, NULL, 0, parsed_report);
 }
 
 oe_result_t oe_verify_report_ecall(const void* report, size_t report_size)
