@@ -531,16 +531,11 @@ oe_result_t oe_verify_quote_internal_with_collaterals(
         // TODO: Skipping this check since cannot get qe_identity_info from
         //       az-dcap-client.
         //
-        // OE_CHECK_MSG(
-        //     oe_validate_qe_identity(
-        //         &quote_auth_data->qe_report_body,
-        //         &col->qe_id_info),
-        //     "Quoting enclave identity checking",
-        //     NULL);
         OE_CHECK_MSG(
-            oe_validate_qe_report_body(&quote_auth_data->qe_report_body),
-            "Failed to validate QE report body identity. %s",
-            oe_result_str(result));
+            oe_validate_qe_identity(
+                &quote_auth_data->qe_report_body, &col->qe_id_info),
+            "Quoting enclave identity checking",
+            NULL);
     }
 
     result = OE_OK;

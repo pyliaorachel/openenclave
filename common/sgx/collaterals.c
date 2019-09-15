@@ -87,8 +87,6 @@ oe_result_t oe_get_collaterals_internal(
     // TODO: Application specific collaterals
     collaterals->app_collaterals_size = 0;
 
-    // TODO: Tested with latest az-dcap-client 1.1 (linux)
-    // and this is still failing.
     //
     // QE identify info
     //

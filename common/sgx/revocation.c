@@ -285,9 +285,8 @@ oe_result_t oe_validate_revocation_list(
     oe_parsed_tcb_info_t parsed_tcb_info = {0};
     oe_tcb_level_t platform_tcb_level = {{0}};
 
-    const int NUM_CRLS = 2;
-    oe_crl_t crls[NUM_CRLS] = {{{0}}};
-    const oe_crl_t* crl_ptrs[NUM_CRLS] = {&crls[0], &crls[1]};
+    oe_crl_t crls[2] = {{{0}}};
+    const oe_crl_t* crl_ptrs[2] = {&crls[0], &crls[1]};
 
     if (leaf_cert == NULL || revocation_args == NULL)
         OE_RAISE(OE_INVALID_PARAMETER);
