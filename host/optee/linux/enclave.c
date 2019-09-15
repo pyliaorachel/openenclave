@@ -430,15 +430,15 @@ oe_result_t oe_create_enclave(
     if (!enclave_path || !enclave_out ||
         ((enclave_type != OE_ENCLAVE_TYPE_OPTEE) &&
          (enclave_type != OE_ENCLAVE_TYPE_AUTO)) ||
-        (flags & OE_ENCLAVE_FLAG_RESERVED) ||
-        (!(flags & OE_ENCLAVE_FLAG_SIMULATE) &&
-         (flags & OE_ENCLAVE_FLAG_DEBUG)) ||
 #ifdef OE_CONTEXT_SWITCHLESS_EXPERIMENTAL_FEATURE
         (config_count > 0 && configs == NULL) ||
         (config_count == 0 && configs != NULL) ||
 #else
         config || config_size > 0 ||
 #endif
+        (flags & OE_ENCLAVE_FLAG_RESERVED) ||
+        (!(flags & OE_ENCLAVE_FLAG_SIMULATE) &&
+         (flags & OE_ENCLAVE_FLAG_DEBUG)))
         OE_RAISE(OE_INVALID_PARAMETER);
 
     /* Convert the path into a TEE UUID. */
