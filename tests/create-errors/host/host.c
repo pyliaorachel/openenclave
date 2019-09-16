@@ -14,7 +14,7 @@ static void _test_invalid_param(const char* path, uint32_t flags)
     oe_enclave_t* enclave = NULL;
 
 #ifdef OE_CONTEXT_SWITCHLESS_EXPERIMENTAL_FEATURE
-    oe_enclave_config_t invalid_config;
+    oe_enclave_config_t invalid_config = {0, {NULL}};
     oe_enclave_config_context_switchless_t config = {2, 0};
     oe_enclave_config_t configs[] = {{
         .config_type = OE_ENCLAVE_CONFIG_CONTEXT_SWITCHLESS,

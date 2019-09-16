@@ -27,6 +27,6 @@ oe_result_t oe_start_switchless_manager(
     oe_enclave_t* enclave,
     size_t num_host_workers);
 
-void oe_stop_switchless_manager(oe_enclave_t* enclave);
+oe_result_t oe_stop_switchless_manager(oe_enclave_t* enclave);
 
 #endif /* _OE_SWITCHLESS_H */

@@ -31,8 +31,9 @@ static void* _switchless_ocall_worker(void* arg)
     return NULL;
 }
 
-static void oe_stop_worker_threads(oe_switchless_call_manager_t* manager)
+static oe_result_t oe_stop_worker_threads(oe_switchless_call_manager_t* manager)
 {
+    oe_result_t result = OE_UNEXPECTED;
     for (size_t i = 0; i < manager->num_host_workers; i++)
     {
         manager->host_worker_contexts[i].is_stopping = true;
@@ -41,8 +42,13 @@ static void oe_stop_worker_threads(oe_switchless_call_manager_t* manager)
     for (size_t i = 0; i < manager->num_host_workers; i++)
     {
         if (manager->host_worker_threads[i] != (oe_thread_t)NULL)
-            oe_thread_join(manager->host_worker_threads[i]);
+            if (oe_thread_join(manager->host_worker_threads[i]))
+                OE_RAISE(OE_THREAD_JOIN_ERROR);
     }
+
+    result = OE_OK;
+done:
+    return result;
 }
 
 oe_result_t oe_start_switchless_manager(
@@ -116,10 +122,14 @@ done:
     return result;
 }
 
-void oe_stop_switchless_manager(oe_enclave_t* enclave)
+oe_result_t oe_stop_switchless_manager(oe_enclave_t* enclave)
 {
+    oe_result_t result = OE_UNEXPECTED;
     if (enclave != NULL && enclave->switchless_manager != NULL)
     {
-        oe_stop_worker_threads(enclave->switchless_manager);
+        OE_CHECK(oe_stop_worker_threads(enclave->switchless_manager));
     }
+    result = OE_OK;
+done:
+    return result;
 }
