@@ -6,6 +6,7 @@
 #include <openenclave/enclave.h>
 #include <openenclave/internal/atomic.h>
 #include <openenclave/internal/raise.h>
+#include <openenclave/internal/utils.h>
 
 // The number of host thread workers. Initialized by host through ECALL
 static size_t _host_worker_count = 0;
@@ -89,6 +90,8 @@ done:
 oe_result_t oe_post_switchless_ocall(oe_call_host_function_args_t* args)
 {
     oe_result_t result = OE_UNEXPECTED;
+
+    OE_ATOMIC_MEMORY_BARRIER_RELEASE();
     args->result = __OE_RESULT_MAX; // Means the call hasn't been processed.
 
     // Cycle through the worker contexts until we find a free worker.

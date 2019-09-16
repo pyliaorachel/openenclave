@@ -319,6 +319,7 @@ oe_result_t oe_handle_call_host_function(uint64_t arg, oe_enclave_t* enclave)
         &args_ptr->output_bytes_written);
 
     // The ocall succeeded.
+    OE_ATOMIC_MEMORY_BARRIER_RELEASE();
     args_ptr->result = OE_OK;
     result = OE_OK;
 done:
